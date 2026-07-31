@@ -237,7 +237,19 @@
                    type.includes('heic') || type.includes('heif');
         });
         if (heicFiles.length === 0) {
-            if (files.length > 0) alert('未偵測到 HEIC/HEIF 檔案，請確認選取的是 .heic 或 .heif 格式的照片。');
+            if (files.length > 0) {
+                const debugList = Array.from(files)
+                    .map(f => `・${f.name}（類型：${f.type || '未知'}）`)
+                    .join('\n');
+                alert(
+                    '未偵測到 HEIC/HEIF 檔案。\n\n' +
+                    '你選取的檔案實際格式如下：\n' + debugList + '\n\n' +
+                    '常見原因：如果是從「照片」圖庫選取的相片，iPhone 的 Safari/瀏覽器會在選取當下自動把 HEIC 轉成 JPEG 才交給網頁，' +
+                    '所以這裡收到的已經是 JPEG，不需要再轉換。\n\n' +
+                    '若要轉換「真正的」HEIC 檔案，請改由「檔案（Files）App」中本來就是 .heic/.heif 格式的檔案來選取（例如別人傳來、雲端硬碟下載的檔案），' +
+                    '而不是從「照片」圖庫選取。'
+                );
+            }
             return;
         }
         selectedFilesArray = [...selectedFilesArray, ...heicFiles].slice(0, 100);
