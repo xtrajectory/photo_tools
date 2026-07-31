@@ -129,6 +129,18 @@
         .card p { font-size: 12px; color: var(--muted); margin-bottom: 10px; word-break: break-all; height: 32px; overflow: hidden; }
 
         input[type="file"] { display: none; }
+
+        @media (max-width: 480px) {
+            body { padding: 24px 12px; }
+            header h1 { font-size: 30px; }
+            .section { padding: 20px 18px; }
+            .quality-grid { grid-template-columns: 1fr; gap: 10px; }
+            .quality-card { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; text-align: left; }
+            .q-val { margin-bottom: 0; }
+            .gallery { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+        }
+
+        .fail-list { text-align: left; font-size: 12px; color: var(--muted); margin-top: 8px; }
     </style>
 </head>
 <body>
@@ -147,7 +159,7 @@
             <p id="dropText">將 HEIC 檔案拖曳至此，或點擊按鈕選取</p>
             <br>
             <button class="btn btn-outline" onclick="document.getElementById('fileInput').click()">選取檔案</button>
-            <input type="file" id="fileInput" accept=".heic, .heif" multiple>
+            <input type="file" id="fileInput" accept=".heic,.heif,image/heic,image/heif" multiple>
         </div>
         <div id="fileChips" class="file-chips"></div>
     </div>
@@ -218,10 +230,16 @@
     fileInput.addEventListener('change', (e) => { handleFiles(e.target.files); });
 
     function handleFiles(files) {
-        const heicFiles = Array.from(files).filter(f => 
-            f.name.toLowerCase().endsWith('.heic') || f.name.toLowerCase().endsWith('.heif')
-        );
-        if (heicFiles.length === 0) return;
+        const heicFiles = Array.from(files).filter(f => {
+            const name = f.name.toLowerCase();
+            const type = (f.type || '').toLowerCase();
+            return name.endsWith('.heic') || name.endsWith('.heif') ||
+                   type.includes('heic') || type.includes('heif');
+        });
+        if (heicFiles.length === 0) {
+            if (files.length > 0) alert('未偵測到 HEIC/HEIF 檔案，請確認選取的是 .heic 或 .heif 格式的照片。');
+            return;
+        }
         selectedFilesArray = [...selectedFilesArray, ...heicFiles].slice(0, 100);
         updateFileListView();
     }
@@ -237,10 +255,17 @@
         selectedFilesArray.forEach((file, index) => {
             const chip = document.createElement('div');
             chip.className = 'chip';
-            chip.innerHTML = `
-                <span>${file.name}</span>
-                <button class="chip-remove" onclick="removeFile(${index})">✕</button>
-            `;
+
+            const span = document.createElement('span');
+            span.textContent = file.name;
+            chip.appendChild(span);
+
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'chip-remove';
+            removeBtn.textContent = '✕';
+            removeBtn.addEventListener('click', () => removeFile(index));
+            chip.appendChild(removeBtn);
+
             fileChips.appendChild(chip);
         });
     }
@@ -269,7 +294,6 @@
         previewSection.style.display = "none";
         downloadAllBtn.style.display = "none";
         updateFileListView();
-        window.currentBlobs = {};
     });
 
     // 轉換核心
@@ -280,43 +304,71 @@
         statusText.innerText = "準備轉換...";
         gallery.innerHTML = "";
         convertedFiles = [];
-        window.currentBlobs = {};
         previewSection.style.display = "block";
+        const failedNames = [];
 
         for (let i = 0; i < selectedFilesArray.length; i++) {
             statusText.innerText = `正在轉換 (${i+1}/${selectedFilesArray.length})...`;
             try {
-                const blob = await heic2any({ 
-                    blob: selectedFilesArray[i], 
-                    toType: "image/jpeg", 
-                    quality: currentQuality 
+                const result = await heic2any({
+                    blob: selectedFilesArray[i],
+                    toType: "image/jpeg",
+                    quality: currentQuality
                 });
-                const name = selectedFilesArray[i].name.replace(/\.(heic|heif)$/i, '.jpg');
-                convertedFiles.push({ name, blob });
-                renderCard(blob, name);
-            } catch (e) { 
+                // heic2any can return an array of Blobs when the source HEIC
+                // contains multiple images (e.g. burst photos / live photos).
+                const blobs = Array.isArray(result) ? result : [result];
+                const baseName = selectedFilesArray[i].name.replace(/\.(heic|heif)$/i, '');
+                blobs.forEach((blob, idx) => {
+                    const suffix = blobs.length > 1 ? `_${idx + 1}` : '';
+                    const name = `${baseName}${suffix}.jpg`;
+                    convertedFiles.push({ name, blob });
+                    renderCard(blob, name);
+                });
+            } catch (e) {
                 console.error(e);
-                statusText.innerText = "部分檔案轉換失敗。";
+                failedNames.push(selectedFilesArray[i].name);
             }
         }
-        statusText.innerText = "✓ 轉換完成";
+
+        if (failedNames.length === 0) {
+            statusText.innerHTML = "✓ 轉換完成";
+        } else {
+            statusText.innerHTML = `✓ 轉換完成，但有 ${failedNames.length} 個檔案失敗` +
+                `<div class="fail-list">失敗檔案：${failedNames.map(escapeHtml).join(', ')}</div>`;
+        }
         convertBtn.disabled = false;
         if (convertedFiles.length > 0) downloadAllBtn.style.display = 'block';
     });
+
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
 
     function renderCard(blob, filename) {
         const url = URL.createObjectURL(blob);
         const card = document.createElement('div');
         card.className = 'card';
-        card.innerHTML = `
-            <img src="${url}">
-            <p>${filename}</p>
-            <button class="btn btn-outline" style="width:100%; padding:8px; font-size:12px;" 
-                    onclick="saveAs(window.currentBlobs['${filename}'], '${filename}')">
-                下載 JPG
-            </button>`;
-        if(!window.currentBlobs) window.currentBlobs = {};
-        window.currentBlobs[filename] = blob;
+
+        const img = document.createElement('img');
+        img.src = url;
+        card.appendChild(img);
+
+        const p = document.createElement('p');
+        p.textContent = filename;
+        card.appendChild(p);
+
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-outline';
+        btn.style.width = '100%';
+        btn.style.padding = '8px';
+        btn.style.fontSize = '12px';
+        btn.textContent = '下載 JPG';
+        btn.addEventListener('click', () => saveAs(blob, filename));
+        card.appendChild(btn);
+
         gallery.appendChild(card);
     }
 
